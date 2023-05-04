@@ -1,14 +1,18 @@
 import io
 import json
 import os
+import sys
 
+import wandb
 import numpy as np
 from PIL import Image
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
+import tensorflow as tf
+from wandb.keras import WandbMetricsLogger, WandbModelCheckpoint
 
-data_dir = "../dataset"
+data_dir = "./dataset"
 labels = os.listdir(data_dir)
 
 images = []
@@ -19,31 +23,73 @@ for label in labels:
         img = Image.open(img_path)
         img_copy = img.copy()
         img.close()
-        img_copy = img_copy.resize(size=(224, 224))
+        img_copy = img_copy.resize(size=(400, 400))
         images.append((img_copy, label))
 
-# present_sample_images(images=images)
+print("Finished loading images to PIL objects.")
 
 X = []
 y = []
 
 for image, label in images:
-    if np.array(image).shape == (224, 224, 3):
+    if np.array(image).shape == (400, 400, 3):
         X.append(np.array(image))
         y.append(label)
 
 X = np.array(X)
 y = np.array(y)
 
-# Normalize the data
-X = X.astype('float32')
-X /= 255.0
-
 le = LabelEncoder()
 y_encoded = le.fit_transform(y)
 
+y_encoded = tf.keras.utils.to_categorical(y_encoded, num_classes=5)
+
 label_dict = dict(zip(le.classes_, le.transform(le.classes_)))
 print(label_dict)
+
+raw_X_train_val, raw_X_test, raw_y_train_val, raw_y_test = train_test_split(X, y_encoded, test_size=0.1,
+                                                                            random_state=42,
+                                                                            stratify=y_encoded)
+raw_X_train, raw_X_val, raw_y_train, raw_y_val = train_test_split(raw_X_train_val, raw_y_train_val, test_size=0.2,
+                                                                  random_state=42,
+                                                                  stratify=raw_y_train_val)
+
+wandb.init(project="SZUM", name="SPLIT1-ES")
+
+print("started_training..")
+
+# Define the model architecture
+model = tf.keras.Sequential([
+    tf.keras.applications.MobileNetV3Large(input_shape=(224, 224, 3), include_top=False,
+                                           weights='imagenet'),
+    # tf.keras.layers.GlobalAveragePooling2D(),
+    tf.keras.layers.Flatten(),
+    tf.keras.layers.Dense(128, activation='relu'),
+    tf.keras.layers.Dense(128, activation='relu'),
+    tf.keras.layers.Dense(5, activation='softmax')
+])
+
+# Compile the model with appropriate loss and metrics
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+callback = tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=3)
+
+model.summary()
+
+# Train the model
+model.fit(x=raw_X_train, y=raw_y_train, validation_data=(raw_X_val, raw_y_val), epochs=20, batch_size=32,
+          callbacks=[
+              WandbMetricsLogger(log_freq=5),
+              WandbModelCheckpoint("models"),
+              callback
+          ], )
+
+# Evaluate the model on the test set
+test_loss, test_acc = model.evaluate(raw_X_test, raw_y_test)
+print('Test accuracy:', test_acc)
+
+model.save("model.h5")
+
 
 datagen = ImageDataGenerator(rotation_range=20,
                              featurewise_center=False,
@@ -53,54 +99,23 @@ datagen = ImageDataGenerator(rotation_range=20,
                              horizontal_flip=True,
                              zca_whitening=False)
 
+
+datagen = ImageDataGenerator(
+    rotation_range=45,
+    zoom_range=0.3,
+    width_shift_range=0.2,
+    height_shift_range=0.2,
+    shear_range=0.25,
+    fill_mode="nearest",
+)
+
+
 # Perform data augmentation on X
 X_augmented = []
 for batch in datagen.flow(X, batch_size=X.shape[0], shuffle=False):
     X_augmented.append(batch)
     if len(X_augmented) == 1:
         break
-
-# present_augmented_data(X=X, X_augmented=X_augmented)
-
-# 1. Split the data into TRAIN/VAL/TEST sets
-# random.seed(42)
-# random.shuffle(images)
-# train_split = 0.7  # 70% for training
-# val_split = 0.2  # 20% for validation
-# test_split = 0.1  # 10% for testing
-#
-# num_train = int(train_split * len(images))
-# num_val = int(val_split * len(images))
-#
-# raw_X_train = np.array([img[0] for img in images[:num_train]])
-# raw_y_train = np.array([img[1] for img in images[:num_train]])
-#
-# raw_X_val = np.array([img[0] for img in images[num_train:num_train + num_val]])
-# raw_y_val = np.array([img[1] for img in images[num_train:num_train + num_val]])
-#
-# raw_X_test = np.array([img[0] for img in images[num_train + num_val:]])
-# raw_y_test = np.array([img[1] for img in images[num_train + num_val:]])
-
-
-raw_X_train_val, raw_X_test, raw_y_train_val, raw_y_test = train_test_split(X, y_encoded, test_size=0.1,
-                                                                            random_state=42,
-                                                                            stratify=y_encoded)
-raw_X_train, raw_X_val, raw_y_train, raw_y_val = train_test_split(raw_X_train_val, raw_y_train_val, test_size=0.2,
-                                                                  random_state=42,
-                                                                  stratify=raw_y_train_val)
-
-for label, data in [("raw_x_train", raw_X_train), ("raw_y_train", raw_y_train), ("raw_x_val", raw_X_val),
-                    ("raw_y_val", raw_y_val), ("raw_x_test", raw_X_test), ("raw_y_test", raw_y_test)]:
-    memfile = io.BytesIO()
-    np.save(memfile, data)
-    serialized = memfile.getvalue()
-    serialized_data = json.dumps(serialized.decode('latin-1'))
-
-    with open(f"../data/split_1/{label}.json", "w") as outfile:
-        outfile.write(serialized_data)
-    print(f"{label} serialized.")
-
-# present_first_dataset_split(label_dict=label_dict, y_train=raw_y_train, y_val=raw_y_val, y_test=raw_y_test)
 
 # 2. Split the processed data into TRAIN/VAL/TEST sets
 
@@ -111,43 +126,3 @@ X_train_val, X_test, y_train_val, y_test = train_test_split(X_augmented[0], y_en
 # NO LONGER NEEDED IN SPLIT 3!
 X_train, X_val, y_train, y_val = train_test_split(X_train_val, y_train_val, test_size=0.2, random_state=42,
                                                   stratify=y_train_val)
-
-for label, data in [("x_train", X_train), ("y_train", y_train), ("x_val", X_val), ("y_val", y_val), ("x_test", X_test),
-                    ("y_test", y_test)]:
-    memfile = io.BytesIO()
-    np.save(memfile, data)
-    serialized = memfile.getvalue()
-    serialized_data = json.dumps(serialized.decode('latin-1'))
-
-    with open(f"../data/split_2/{label}.json", "w") as outfile:
-        outfile.write(serialized_data)
-    print(f"{label} serialized.")
-
-for label, data in [("x_train_val", X_train_val), ("y_train_val", y_train_val), ("x_test", X_test), ("y_test", y_test)]:
-    memfile = io.BytesIO()
-    np.save(memfile, data)
-    serialized = memfile.getvalue()
-    serialized_data = json.dumps(serialized.decode('latin-1'))
-
-    with open(f"../data/split_3/{label}.json", "w") as outfile:
-        outfile.write(serialized_data)
-    print(f"{label} serialized.")
-
-# Count number of samples in each class for each set
-# num_classes = len(label_dict)
-# train_counts = [len(y_train[y_train == i]) for i in range(num_classes)]
-# val_counts = [len(y_val[y_val == i]) for i in range(num_classes)]
-# test_counts = [len(y_test[y_test == i]) for i in range(num_classes)]
-
-# Plot bar chart of class distribution for each set
-# plt.figure(figsize=(10, 5))
-# plt.bar(range(num_classes), train_counts, label='Train')
-# plt.bar(range(num_classes), val_counts, bottom=train_counts, label='Validation')
-# plt.bar(range(num_classes), test_counts, bottom=[train_counts[i] + val_counts[i] for i in range(num_classes)],
-#         label='Test')
-# plt.xticks(range(num_classes), label_dict.keys())
-# plt.xlabel('Class')
-# plt.ylabel('Count')
-# plt.title('Class distribution in TRAIN/VAL/TEST sets')
-# plt.legend()
-# plt.show()

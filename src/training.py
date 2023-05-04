@@ -29,11 +29,12 @@ def train_with_effnet_on_raw_data(x_train_set, y_train_set, x_val_set, y_val_set
     # Define the model architecture
     model = tf.keras.Sequential([
         tf.keras.applications.MobileNetV3Large(input_shape=(224, 224, 3), include_top=False,
-                                                              weights='imagenet'),
+                                               weights='imagenet'),
         # tf.keras.layers.GlobalAveragePooling2D(),
         tf.keras.layers.Flatten(),
-        tf.keras.layers.Dense(128, activation='relu'),
-        tf.keras.layers.Dense(128, activation='relu'),
+        tf.keras.layers.Dense(64, activation='relu'),
+        tf.keras.layers.Dense(32, activation='relu'),
+        tf.keras.layers.Dense(16, activation='relu'),
         tf.keras.layers.Dense(NUMBER_OF_CLASSES, activation='softmax')
     ])
 
@@ -70,12 +71,12 @@ def load_data(label: str, split: str, data_set: dict):
 
 
 threads = []
-for set_label in labels_split_1:
-    t = threading.Thread(target=load_data, args=(set_label, "split_1", data_sets_split_1))
-    threads.append(t)
-# for set_label in labels_split_2:
-#     t = threading.Thread(target=load_data, args=(set_label, "split_2", data_sets_split_2))
+# for set_label in labels_split_1:
+#     t = threading.Thread(target=load_data, args=(set_label, "split_1", data_sets_split_1))
 #     threads.append(t)
+for set_label in labels_split_2:
+    t = threading.Thread(target=load_data, args=(set_label, "split_2", data_sets_split_2))
+    threads.append(t)
 # for set_label in labels_split_3:
 #     t = threading.Thread(target=load_data, args=(set_label, "split_3"))
 #     threads.append(t)
@@ -85,17 +86,32 @@ for t in threads:
 for t in threads:
     t.join()
 
-data_sets_split_1["raw_y_train"] = tf.keras.utils.to_categorical(data_sets_split_1["raw_y_train"],
-                                                                 num_classes=NUMBER_OF_CLASSES)
-data_sets_split_1["raw_y_val"] = tf.keras.utils.to_categorical(data_sets_split_1["raw_y_val"],
-                                                               num_classes=NUMBER_OF_CLASSES)
-data_sets_split_1["raw_y_test"] = tf.keras.utils.to_categorical(data_sets_split_1["raw_y_test"],
-                                                                num_classes=NUMBER_OF_CLASSES)
+# data_sets_split_1["raw_y_train"] = tf.keras.utils.to_categorical(data_sets_split_1["raw_y_train"],
+#                                                                  num_classes=NUMBER_OF_CLASSES)
+# data_sets_split_1["raw_y_val"] = tf.keras.utils.to_categorical(data_sets_split_1["raw_y_val"],
+#                                                                num_classes=NUMBER_OF_CLASSES)
+# data_sets_split_1["raw_y_test"] = tf.keras.utils.to_categorical(data_sets_split_1["raw_y_test"],
+#                                                                 num_classes=NUMBER_OF_CLASSES)
+#
+# train_with_effnet_on_raw_data(x_train_set=data_sets_split_1["raw_x_train"],
+#                               y_train_set=data_sets_split_1["raw_y_train"],
+#                               x_val_set=data_sets_split_1["raw_x_val"],
+#                               y_val_set=data_sets_split_1["raw_y_val"],
+#                               x_test_set=data_sets_split_1["raw_x_test"],
+#                               y_test_set=data_sets_split_1["raw_y_test"]
+#                               )
 
-train_with_effnet_on_raw_data(x_train_set=data_sets_split_1["raw_x_train"],
-                              y_train_set=data_sets_split_1["raw_y_train"],
-                              x_val_set=data_sets_split_1["raw_x_val"],
-                              y_val_set=data_sets_split_1["raw_y_val"],
-                              x_test_set=data_sets_split_1["raw_x_test"],
-                              y_test_set=data_sets_split_1["raw_y_test"]
+data_sets_split_2["y_train"] = tf.keras.utils.to_categorical(data_sets_split_1["y_train"],
+                                                             num_classes=NUMBER_OF_CLASSES)
+data_sets_split_2["y_val"] = tf.keras.utils.to_categorical(data_sets_split_1["y_val"],
+                                                           num_classes=NUMBER_OF_CLASSES)
+data_sets_split_2["y_test"] = tf.keras.utils.to_categorical(data_sets_split_1["y_test"],
+                                                            num_classes=NUMBER_OF_CLASSES)
+
+train_with_effnet_on_raw_data(x_train_set=data_sets_split_2["x_train"],
+                              y_train_set=data_sets_split_2["y_train"],
+                              x_val_set=data_sets_split_2["x_val"],
+                              y_val_set=data_sets_split_2["y_val"],
+                              x_test_set=data_sets_split_2["x_test"],
+                              y_test_set=data_sets_split_2["y_test"]
                               )
