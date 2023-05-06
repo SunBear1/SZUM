@@ -12,7 +12,7 @@ from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import tensorflow as tf
 from wandb.keras import WandbMetricsLogger, WandbModelCheckpoint
 
-data_dir = "./dataset"
+data_dir = "../dataset"
 labels = os.listdir(data_dir)
 
 images = []
@@ -23,7 +23,7 @@ for label in labels:
         img = Image.open(img_path)
         img_copy = img.copy()
         img.close()
-        img_copy = img_copy.resize(size=(400, 400))
+        img_copy = img_copy.resize(size=(224, 224))
         images.append((img_copy, label))
 
 print("Finished loading images to PIL objects.")
@@ -32,7 +32,7 @@ X = []
 y = []
 
 for image, label in images:
-    if np.array(image).shape == (400, 400, 3):
+    if np.array(image).shape == (224, 224, 3):
         X.append(np.array(image))
         y.append(label)
 
@@ -54,7 +54,33 @@ raw_X_train, raw_X_val, raw_y_train, raw_y_val = train_test_split(raw_X_train_va
                                                                   random_state=42,
                                                                   stratify=raw_y_train_val)
 
-wandb.init(project="SZUM", name="SPLIT1-ES")
+datagen = ImageDataGenerator(
+    rotation_range=45,
+    zoom_range=0.3,
+    width_shift_range=0.2,
+    height_shift_range=0.2,
+    shear_range=0.25,
+    fill_mode="nearest",
+)
+
+# Perform data augmentation on X
+X_augmented = []
+for batch in datagen.flow(X, batch_size=X.shape[0], shuffle=False):
+    X_augmented.append(batch)
+    if len(X_augmented) == 1:
+        break
+
+# 2. Split the processed data into TRAIN/VAL/TEST sets
+
+# Split data into train and test sets
+X_train_val, X_test, y_train_val, y_test = train_test_split(X_augmented[0], y_encoded, test_size=0.2, random_state=42,
+                                                            stratify=y_encoded)
+# Split train_val data into train and validation sets
+# NO LONGER NEEDED IN SPLIT 3!
+# X_train, X_val, y_train, y_val = train_test_split(X_train_val, y_train_val, test_size=0.2, random_state=42,
+#                                                  stratify=y_train_val)
+
+wandb.init(project="SZUM", name="SPLIT3-ES-2EPOCHS")
 
 print("started_training..")
 
@@ -72,57 +98,19 @@ model = tf.keras.Sequential([
 # Compile the model with appropriate loss and metrics
 model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
 
-callback = tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=3)
+callback = tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=1)
 
 model.summary()
 
 # Train the model
-model.fit(x=raw_X_train, y=raw_y_train, validation_data=(raw_X_val, raw_y_val), epochs=20, batch_size=32,
+model.fit(x=X_train_val, y=y_train_val, validation_data=(X_test, y_test), epochs=2, batch_size=32,
           callbacks=[
               WandbMetricsLogger(log_freq=5),
               WandbModelCheckpoint("models"),
-              callback
           ], )
 
 # Evaluate the model on the test set
-test_loss, test_acc = model.evaluate(raw_X_test, raw_y_test)
-print('Test accuracy:', test_acc)
+#test_loss, test_acc = model.evaluate(X_test, y_test)
+#print('Test accuracy:', test_acc)
 
 model.save("model.h5")
-
-
-datagen = ImageDataGenerator(rotation_range=20,
-                             featurewise_center=False,
-                             featurewise_std_normalization=False,
-                             width_shift_range=0.1,
-                             height_shift_range=0.1,
-                             horizontal_flip=True,
-                             zca_whitening=False)
-
-
-datagen = ImageDataGenerator(
-    rotation_range=45,
-    zoom_range=0.3,
-    width_shift_range=0.2,
-    height_shift_range=0.2,
-    shear_range=0.25,
-    fill_mode="nearest",
-)
-
-
-# Perform data augmentation on X
-X_augmented = []
-for batch in datagen.flow(X, batch_size=X.shape[0], shuffle=False):
-    X_augmented.append(batch)
-    if len(X_augmented) == 1:
-        break
-
-# 2. Split the processed data into TRAIN/VAL/TEST sets
-
-# Split data into train and test sets
-X_train_val, X_test, y_train_val, y_test = train_test_split(X_augmented[0], y_encoded, test_size=0.1, random_state=42,
-                                                            stratify=y_encoded)
-# Split train_val data into train and validation sets
-# NO LONGER NEEDED IN SPLIT 3!
-X_train, X_val, y_train, y_val = train_test_split(X_train_val, y_train_val, test_size=0.2, random_state=42,
-                                                  stratify=y_train_val)
